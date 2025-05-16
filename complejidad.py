@@ -5,7 +5,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 
-# ───────── util ───────────────────────────────────────────────────
 def haversine(lat1, lon1, lat2, lon2):
     R = 6_371_000
     dlat, dlon = map(math.radians, [lat2 - lat1, lon2 - lon1])
