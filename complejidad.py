@@ -40,7 +40,6 @@ def subgrafo_aleatorio(G: nx.Graph, n=1500):
         random.sample(list(G.nodes), n)).copy()
 
 
-# ───────── layout robusto (sin SciPy) ────────────────────────────
 def layout_seguro(G):
     try:
         import scipy  # noqa: F401
@@ -52,7 +51,6 @@ def layout_seguro(G):
             return nx.random_layout(G)
 
 
-# ───────── dibujo ────────────────────────────────────────────────
 def dibujar(G, titulo="Red vial"):
     pos = layout_seguro(G)
     colores, sizes = [], []
@@ -69,7 +67,6 @@ def dibujar(G, titulo="Red vial"):
     plt.title(titulo); plt.axis("off"); plt.tight_layout(); plt.show()
 
 
-# ───────── main ───────────────────────────────────────────────────
 def main():
     archivo = Path("export2.json")
     if not archivo.is_file():
@@ -79,12 +76,10 @@ def main():
     G = cargar_grafo(archivo)
     print(f"  • {G.number_of_nodes():,} nodos, {G.number_of_edges():,} aristas")
 
-    # Reducir a 1500 nodos si hace falta
     G = subgrafo_aleatorio(G, 1500)
     if G.number_of_nodes() == 1500:
         print("Subgrafo aleatorio de 1500 nodos generado.")
 
-    # Demo: marcar 100 puntos y 3 centros
     nodos = list(G.nodes)
     puntos  = random.sample(nodos, min(100, len(nodos)))
     centros = random.sample([n for n in nodos if n not in puntos],
