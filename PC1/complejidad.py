@@ -1,4 +1,3 @@
-
 import json, math, random, sys
 from pathlib import Path
 import networkx as nx
@@ -37,6 +36,34 @@ def cargar_grafo(path_json: Path):
 def subgrafo_aleatorio(G: nx.Graph, n=1500):
     return G if G.number_of_nodes() <= n else G.subgraph(
         random.sample(list(G.nodes), n)).copy()
+
+
+def ruta_greedy_cobertura(G: nx.Graph, origen: int, destinos: list[int]):
+    """
+    Devuelve una lista de nodos que representa una ruta (no necesariamente óptima)
+    que parte en `origen` y visita todos los nodos en `destinos` usando Dijkstra
+    para ir siempre al punto pendiente más cercano.
+    """
+    pendientes = set(destinos)
+    ruta = [origen]
+    actual = origen
+    while pendientes:
+        # descarta los que NO son alcanzables
+        pendientes = {p for p in pendientes if nx.has_path(G, actual, p)}
+        if not pendientes:
+            break
+        # nodo pendiente más cercano al nodo actual
+        siguiente, _ = min(
+            ((p, nx.dijkstra_path_length(G, actual, p, weight="length"))
+             for p in pendientes),
+            key=lambda x: x[1]
+        )
+        # concatenar la ruta parcial (sin repetir el nodo actual)
+        tramo = nx.dijkstra_path(G, actual, siguiente, weight="length")
+        ruta.extend(tramo[1:])
+        actual = siguiente
+        pendientes.remove(siguiente)
+    return ruta
 
 
 def layout_seguro(G):
@@ -79,20 +106,33 @@ def main():
     if G.number_of_nodes() == 1500:
         print("Subgrafo aleatorio de 1500 nodos generado.")
 
-    nodos = list(G.nodes)
-    puntos  = random.sample(nodos, min(100, len(nodos)))
-    centros = random.sample([n for n in nodos if n not in puntos],
-                            min(3, len(nodos)))
+    # --- seleccionar nodos SOLO de la componente conexa más grande ----
+    largest_cc = max(nx.connected_components(G), key=len)
+    comp_nodes = list(largest_cc)
+
+    # si la componente fuese aún >1500 nodos ya se redujo antes
+    nodos   = comp_nodes
+    random.shuffle(nodos)
+
+    # escoger centros y puntos dentro de la misma componente
+    centros = nodos[:min(4, len(nodos))]
+    puntos  = nodos[4:4 + min(10, len(nodos) - 4)]
+
     for n in puntos:
         G.nodes[n]["tipo"] = "punto_recoleccion"
     for n in centros:
         G.nodes[n]["tipo"] = "centro_acopio"
 
-    print("Mostrando grafo… (cierra la ventana para continuar)")
-    dibujar(G)
+    # --- filtrar puntos alcanzables desde el primer centro -------------
+    origen_centro = centros[0]
+    alcanzables = set(nx.single_source_dijkstra_path_length(G, origen_centro, weight="length").keys())
+    puntos = [p for p in puntos if p in alcanzables]
+    if not puntos:
+        sys.exit("❌  Ningún punto de recolección es alcanzable desde el centro elegido.")
+
 
     if centros and puntos:
-        o, d = centros[0], puntos[0]
+        o, d = centros[0], puntos[0]     # ya filtrado y garantizado alcanzable
         dist_dij = nx.dijkstra_path_length(G, o, d, weight="length")
         ruta_astar = nx.astar_path(
             G, o, d,
@@ -103,6 +143,43 @@ def main():
                          for u, v in zip(ruta_astar[:-1], ruta_astar[1:]))
         mst = nx.minimum_spanning_tree(G, weight="length")
         long_mst = sum(d["length"] for _, _, d in mst.edges(data=True))
+        # --------------------------------------------------------------
+        # Ruta que cubre todos los puntos de recolección (heurística)
+        ruta_camion = ruta_greedy_cobertura(G, centros[0], puntos)
+        dist_camion = sum(G[u][v]["length"] for u, v in zip(ruta_camion[:-1], ruta_camion[1:]))
+        print("\nRuta (heurística) que recorre todos los puntos desde el centro 0:")
+        print(" → ".join(map(str, ruta_camion[:10])) + (" …" if len(ruta_camion) > 10 else ""))
+        print(f"Distancia total aproximada: {dist_camion:,.1f} m")
+        # ---------- Visualizar la ruta sobre la red completa ----------
+        pos = layout_seguro(G)  # reutilizamos el mismo layout
+        plt.figure(figsize=(10, 10))
+
+        # fondo gris tenue
+        nx.draw_networkx_edges(G, pos, width=0.3, edge_color="#dddddd", alpha=0.4)
+        nx.draw_networkx_nodes(G, pos,
+                               nodelist=list(G.nodes),
+                               node_color="#dddddd", node_size=15, alpha=0.6)
+
+        # puntos y centros destacados
+        nx.draw_networkx_nodes(G, pos,
+                               nodelist=puntos, node_color="#33a02c", node_size=70, label="Punto")
+        nx.draw_networkx_nodes(G, pos,
+                               nodelist=centros, node_color="#1f78b4", node_size=110, label="Centro")
+
+        # ruta más corta centro→primer punto (Dijkstra) en naranja
+        edges_short = list(zip(ruta_astar[:-1], ruta_astar[1:]))
+        nx.draw_networkx_edges(G, pos, edgelist=edges_short,
+                               width=3, edge_color="orange", alpha=0.9)
+
+        # ruta en rojo
+        edges_route = list(zip(ruta_camion[:-1], ruta_camion[1:]))
+        nx.draw_networkx_edges(G, pos, edgelist=edges_route,
+                               width=2.5, edge_color="red", alpha=0.9)
+        plt.title("Ruta heurística sobre la red")
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show()
+        # --------------------------------------------------------------
         print("\n───────── RESULTADOS ─────────")
         print(f"Nodos en grafo:        {G.number_of_nodes():,}")
         print(f"Puntos de recolección: {len(puntos)}")
